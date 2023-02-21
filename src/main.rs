@@ -1,7 +1,8 @@
+mod app;
 pub mod error;
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -11,36 +12,40 @@ use tui::{
     backend::Backend,
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, Widget},
+    widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
 use wanikani_rs::wanikani_client::WanikaniClient;
 
-fn ui<B: Backend>(f: &mut Frame<B>) {
+use crate::app::Wanit;
+
+fn draw_dashboard<B: Backend>(f: &mut Frame<B>) {
     let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .margin(1)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)].as_ref())
+        .split(f.size());
+    let left_chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints(
-            [
-                Constraint::Percentage(10),
-                Constraint::Percentage(80),
-                Constraint::Percentage(10),
-            ]
-            .as_ref(),
-        )
-        .split(f.size());
-    let block = Block::default().title("Block").borders(Borders::ALL);
-    f.render_widget(block, chunks[0]);
-    let block = Block::default().title("Block 2").borders(Borders::ALL);
-    f.render_widget(block, chunks[1]);
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)].as_ref())
+        .split(chunks[0]);
+    let review = Block::default().title("Review").borders(Borders::ALL);
+    let lesson = Block::default().title("Lesson").borders(Borders::ALL);
+    let inner_lesson = lesson.inner(left_chunks[0]);
+    let lesson_p = Paragraph::new("45");
+    f.render_widget(lesson_p, inner_lesson);
+    f.render_widget(lesson, left_chunks[0]);
+    f.render_widget(review, left_chunks[1]);
 }
 
 #[tokio::main]
 async fn main() -> Result<(), WanitError> {
     let client = WanikaniClient::default();
-    let user_info = client.get_user_info().await?;
+    let wanit = Wanit::new(client);
+    let summary = wanit.client.get_summary().await?;
 
-    dbg!(user_info);
+    dbg!(summary);
     // setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -48,18 +53,11 @@ async fn main() -> Result<(), WanitError> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    terminal.draw(|f| ui(f))?;
+    terminal.draw(|f| draw_dashboard(f))?;
 
     thread::sleep(Duration::from_millis(5000));
 
+    Wanit::stop_tui()?;
     // restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
     Ok(())
 }
